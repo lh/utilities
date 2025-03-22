@@ -1,0 +1,31 @@
+# Rust artifacts
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Python virtual environments
+venv_*/
+.venv/
+.env/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+
+# Local development files
+environment.yaml
+requirements.txt
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Debug files
+*.pdb
