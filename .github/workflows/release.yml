@@ -8,12 +8,11 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./fonda
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
+        with:
+          working-directory: ./fonda
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -29,17 +28,18 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: ./fonda
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         run: rustup target add ${{ matrix.target }}
-      - name: Build and Upload
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: ./fonda
+      - name: Upload Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: fonda
           target: ${{ matrix.target }}
+          working-directory: ./fonda
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
