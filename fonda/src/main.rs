@@ -69,6 +69,9 @@ impl std::error::Error for FondaError {
 struct CondaEnv {
     /// Name of the environment
     name: String,
+    /// Python version requirement (optional)
+    #[serde(default)]
+    python_version: Option<String>,
     /// List of dependencies to install
     dependencies: Vec<String>,
 }
@@ -174,9 +177,22 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
     let mut requirements_file = File::create(requirements_path)?;
     for dep in &env.dependencies {
         if dep.starts_with("pip:") {
+            // Handle the "pip:package1,package2" format
             let packages = dep.split(':').nth(1).unwrap_or("").split(',');
             for package in packages {
                 writeln!(requirements_file, "{}", package.trim())?;
+            }
+        } else {
+            // Handle direct package specifications like "numpy>=1.24.0"
+            // Strip comments if present
+            let package_spec = if let Some(comment_idx) = dep.find('#') {
+                dep[0..comment_idx].trim()
+            } else {
+                dep.trim()
+            };
+            
+            if !package_spec.is_empty() {
+                writeln!(requirements_file, "{}", package_spec)?;
             }
         }
     }
@@ -235,9 +251,22 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
     let mut requirements_file = File::create(requirements_path)?;
     for dep in &env.dependencies {
         if dep.starts_with("pip:") {
+            // Handle the "pip:package1,package2" format
             let packages = dep.split(':').nth(1).unwrap_or("").split(',');
             for package in packages {
                 writeln!(requirements_file, "{}", package.trim())?;
+            }
+        } else {
+            // Handle direct package specifications like "numpy>=1.24.0"
+            // Strip comments if present
+            let package_spec = if let Some(comment_idx) = dep.find('#') {
+                dep[0..comment_idx].trim()
+            } else {
+                dep.trim()
+            };
+            
+            if !package_spec.is_empty() {
+                writeln!(requirements_file, "{}", package_spec)?;
             }
         }
     }
