@@ -77,6 +77,9 @@ struct CondaEnv {
     channels: Option<Vec<String>>,
     /// List of dependencies to install
     dependencies: Vec<String>,
+    /// List of pip packages to install (optional)
+    #[serde(default)]
+    pip: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -178,6 +181,8 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
 
     let requirements_path = Path::new(REQUIREMENTS_FILE);
     let mut requirements_file = File::create(requirements_path)?;
+    
+    // Process dependencies
     for dep in &env.dependencies {
         if dep.starts_with("pip:") {
             // Handle the "pip:package1,package2" format
@@ -187,6 +192,22 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
             }
         } else {
             // Handle direct package specifications like "numpy>=1.24.0"
+            // Strip comments if present
+            let package_spec = if let Some(comment_idx) = dep.find('#') {
+                dep[0..comment_idx].trim()
+            } else {
+                dep.trim()
+            };
+            
+            if !package_spec.is_empty() {
+                writeln!(requirements_file, "{}", package_spec)?;
+            }
+        }
+    }
+    
+    // Process pip section if it exists
+    if let Some(pip_deps) = &env.pip {
+        for dep in pip_deps {
             // Strip comments if present
             let package_spec = if let Some(comment_idx) = dep.find('#') {
                 dep[0..comment_idx].trim()
@@ -252,6 +273,8 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
     // Convert dependencies to requirements.txt
     let requirements_path = Path::new(REQUIREMENTS_FILE);
     let mut requirements_file = File::create(requirements_path)?;
+    
+    // Process dependencies
     for dep in &env.dependencies {
         if dep.starts_with("pip:") {
             // Handle the "pip:package1,package2" format
@@ -261,6 +284,22 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
             }
         } else {
             // Handle direct package specifications like "numpy>=1.24.0"
+            // Strip comments if present
+            let package_spec = if let Some(comment_idx) = dep.find('#') {
+                dep[0..comment_idx].trim()
+            } else {
+                dep.trim()
+            };
+            
+            if !package_spec.is_empty() {
+                writeln!(requirements_file, "{}", package_spec)?;
+            }
+        }
+    }
+    
+    // Process pip section if it exists
+    if let Some(pip_deps) = &env.pip {
+        for dep in pip_deps {
             // Strip comments if present
             let package_spec = if let Some(comment_idx) = dep.find('#') {
                 dep[0..comment_idx].trim()
