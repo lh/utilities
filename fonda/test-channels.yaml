@@ -1,0 +1,18 @@
+name: channels-test
+python_version: ">=3.8"
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # Core dependencies
+  - pyyaml>=6.0        # For protocol parsing
+  - numpy>=1.24.0      # For numerical operations and distributions
+  - pandas>=1.3.0      # For data handling and analysis
+  - typing-extensions>=4.0.0  # For advanced type hints
+
+  # Testing
+  - pytest>=7.0.0      # Testing framework
+  - pytest-cov>=3.0.0  # Test coverage

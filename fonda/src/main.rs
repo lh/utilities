@@ -72,6 +72,9 @@ struct CondaEnv {
     /// Python version requirement (optional)
     #[serde(default)]
     python_version: Option<String>,
+    /// List of conda channels to use (optional)
+    #[serde(default)]
+    channels: Option<Vec<String>>,
     /// List of dependencies to install
     dependencies: Vec<String>,
 }
