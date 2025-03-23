@@ -78,6 +78,7 @@ enum FondaCommand {
     RunRequirements,
     WriteRequirements,
     CreateAndRun,
+    CustomFile(String),
 }
 
 impl From<&str> for FondaCommand {
@@ -85,6 +86,7 @@ impl From<&str> for FondaCommand {
         match s {
             "-r" => FondaCommand::RunRequirements,
             "-w" => FondaCommand::WriteRequirements,
+            "-f" => FondaCommand::CustomFile(String::new()), // Will be populated with the file path later
             _ => FondaCommand::CreateAndRun,
         }
     }
@@ -93,12 +95,26 @@ impl From<&str> for FondaCommand {
 #[tokio::main]
 async fn main() -> Result<(), FondaError> {
     let args: Vec<String> = std::env::args().collect();
-    let command = FondaCommand::from(args.get(1).map(String::as_str).unwrap_or(""));
+    
+    // Parse command and optional file path
+    let mut command = FondaCommand::from(args.get(1).map(String::as_str).unwrap_or(""));
+    
+    // If using -f flag, get the file path from the next argument
+    if let FondaCommand::CustomFile(_) = &command {
+        if let Some(file_path) = args.get(2) {
+            command = FondaCommand::CustomFile(file_path.clone());
+        } else {
+            eprintln!("Error: -f flag requires a file path argument");
+            eprintln!("Usage: fonda -f <environment_file.yaml>");
+            std::process::exit(1);
+        }
+    }
 
     match command {
         FondaCommand::RunRequirements => run_requirements().await,
         FondaCommand::WriteRequirements => write_requirements().await,
         FondaCommand::CreateAndRun => create_and_run().await,
+        FondaCommand::CustomFile(file_path) => create_and_run_with_file(&file_path).await,
     }
 }
 
@@ -142,9 +158,13 @@ async fn run_requirements() -> Result<(), FondaError> {
 }
 
 async fn write_requirements() -> Result<(), FondaError> {
-    let path = Path::new(ENVIRONMENT_FILE);
+    write_requirements_from_file(ENVIRONMENT_FILE).await
+}
+
+async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> {
+    let path = Path::new(env_file);
     if !path.exists() {
-        return Err(FondaError::ConfigNotFound(format!("{} not found", ENVIRONMENT_FILE)));
+        return Err(FondaError::ConfigNotFound(format!("{} not found", env_file)));
     }
 
     let file = File::open(path)?;
@@ -180,7 +200,7 @@ async fn get_python_command() -> Result<&'static str, FondaError> {
     Err(FondaError::PythonNotFound("No Python installation found".to_string()))
 }
 
-/// Creates a new virtual environment and installs dependencies
+/// Creates a new virtual environment and installs dependencies using the default environment file
 ///
 /// # Errors
 /// Returns `FondaError` if:
@@ -189,10 +209,22 @@ async fn get_python_command() -> Result<&'static str, FondaError> {
 /// - Virtual environment creation fails
 /// - Package installation fails
 async fn create_and_run() -> Result<(), FondaError> {
+    create_and_run_with_file(ENVIRONMENT_FILE).await
+}
+
+/// Creates a new virtual environment and installs dependencies using a specified environment file
+///
+/// # Errors
+/// Returns `FondaError` if:
+/// - The environment already exists
+/// - Python is not found
+/// - Virtual environment creation fails
+/// - Package installation fails
+async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
     // Read the .yaml file
-    let path = Path::new(ENVIRONMENT_FILE);
+    let path = Path::new(env_file);
     if !path.exists() {
-        return Err(FondaError::ConfigNotFound(format!("{} not found", ENVIRONMENT_FILE)));
+        return Err(FondaError::ConfigNotFound(format!("{} not found", env_file)));
     }
 
     let file = File::open(path)?;

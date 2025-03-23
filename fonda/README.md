@@ -1,5 +1,3 @@
-# README.md
-
 # Fonda
 
 Fonda is a Rust-based CLI tool that manages Python virtual environments and dependencies from YAML configuration files.
@@ -13,7 +11,6 @@ Fonda is a Rust-based CLI tool that manages Python virtual environments and depe
 
 ## Installation
 
-`
 ### From Source
 
 ```sh
@@ -27,35 +24,42 @@ cargo build --release
 # The binary will be available at ./target/release/fonda
 ```
 
-Usage
-The tool supports three main operations:
+## Usage
 
+The tool supports the following operations:
 
-# Create environment and install dependencies
+```sh
+# Create environment and install dependencies from environment.yaml
 fonda
+
+# Create environment and install dependencies from a custom YAML file
+fonda -f custom-environment.yaml
 
 # Install from existing requirements.txt
 fonda -r
 
 # Generate requirements.txt from environment.yaml
 fonda -w
+```
 
 
-Configuration
+## Configuration
+
 Create an environment.yaml file in your project root:
 
+```yaml
 name: myenv
 dependencies:
   - "pip:numpy,pandas"
   - "pip:scikit-learn"
+```
 
 ## Requirements
 
-Rust 1.67 or higher
-Python 3.x
-pip
-uv (Python package installer)
-Building from Source
+- Rust 1.67 or higher
+- Python 3.x
+- pip
+- uv (Python package installer) (optional)
 
 
 ## Project Structure
