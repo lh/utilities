@@ -1,0 +1,4 @@
+Debug log initialized. OS: macos
+Using -w -f with file: test-platform-conda.yaml
+Writing requirements from custom file: test-platform-conda.yaml
+requirements.txt created successfully.

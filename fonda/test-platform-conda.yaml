@@ -1,0 +1,23 @@
+name: platform-test
+python_version: ">=3.8"
+
+dependencies:
+  # Core dependencies for all platforms
+  - pyyaml>=6.0
+  - numpy>=1.24.0
+  - pandas>=1.3.0
+  
+  # Platform-specific dependencies
+  - pywin32>=300       # [win]
+  - pyobjc>=8.0        # [osx]
+  - python-xlib>=0.30  # [linux]
+
+# Platform-specific pip packages
+pip:
+  # Core pip packages for all platforms
+  - requests>=2.28.0
+  
+  # Platform-specific pip packages
+  - winreg>=0.3.1      # [win]
+  - pyobjc-framework-Cocoa>=8.0  # [osx]
+  - dbus-python>=1.2.18  # [linux]

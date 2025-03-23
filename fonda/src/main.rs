@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tokio::process::Command as TokioCommand;
@@ -9,6 +9,7 @@ use std::time::Instant;
 const REQUIREMENTS_FILE: &str = "requirements.txt";
 const ENVIRONMENT_FILE: &str = "environment.yaml";
 const PYTHON_COMMANDS: [&str; 3] = ["python", "python3", "py"];
+const DEBUG_FILE: &str = "fonda_debug.log";
 
 #[derive(Debug)]
 enum FondaError {
@@ -86,6 +87,7 @@ struct CondaEnv {
 enum FondaCommand {
     RunRequirements,
     WriteRequirements,
+    WriteRequirementsCustomFile(String),
     CreateAndRun,
     CustomFile(String),
 }
@@ -101,17 +103,87 @@ impl From<&str> for FondaCommand {
     }
 }
 
+fn log_debug(message: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(DEBUG_FILE)?;
+    
+    writeln!(file, "{}", message)
+}
+
+// Helper function to ensure debug log is created and writable
+fn ensure_debug_log() -> io::Result<()> {
+    // Create the debug log file if it doesn't exist
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(DEBUG_FILE)?;
+    
+    // Close the file handle
+    drop(file);
+    
+    // Log initial message
+    log_debug(&format!("Debug log initialized. OS: {}", OS))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), FondaError> {
     let args: Vec<String> = std::env::args().collect();
     
+    // Ensure debug log is created and writable
+    if let Err(e) = ensure_debug_log() {
+        eprintln!("Warning: Failed to create debug log: {}", e);
+    }
+    
     // Parse command and optional file path
     let mut command = FondaCommand::from(args.get(1).map(String::as_str).unwrap_or(""));
     
+    // Check for -w -f combination
+    if args.len() >= 3 && args[1] == "-w" && args[2] == "-f" {
+        if let Some(file_path) = args.get(3) {
+            // Validate that the file exists and has a .yaml or .yml extension
+            let path = Path::new(file_path);
+            if !path.exists() {
+                eprintln!("Error: File not found: {}", file_path);
+                eprintln!("Usage: fonda -w -f <environment_file.yaml>");
+                std::process::exit(1);
+            }
+            
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            if extension != "yaml" && extension != "yml" {
+                eprintln!("Warning: File does not have .yaml or .yml extension: {}", file_path);
+                let _ = log_debug(&format!("Warning: File does not have .yaml or .yml extension: {}", file_path));
+            }
+            
+            command = FondaCommand::WriteRequirementsCustomFile(file_path.clone());
+            let _ = log_debug(&format!("Using -w -f with file: {}", file_path));
+        } else {
+            eprintln!("Error: -w -f flags require a file path argument");
+            eprintln!("Usage: fonda -w -f <environment_file.yaml>");
+            std::process::exit(1);
+        }
+    }
     // If using -f flag, get the file path from the next argument
-    if let FondaCommand::CustomFile(_) = &command {
+    else if let FondaCommand::CustomFile(_) = &command {
         if let Some(file_path) = args.get(2) {
+            // Validate that the file exists and has a .yaml or .yml extension
+            let path = Path::new(file_path);
+            if !path.exists() {
+                eprintln!("Error: File not found: {}", file_path);
+                eprintln!("Usage: fonda -f <environment_file.yaml>");
+                std::process::exit(1);
+            }
+            
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            if extension != "yaml" && extension != "yml" {
+                eprintln!("Warning: File does not have .yaml or .yml extension: {}", file_path);
+                let _ = log_debug(&format!("Warning: File does not have .yaml or .yml extension: {}", file_path));
+            }
+            
             command = FondaCommand::CustomFile(file_path.clone());
+            let _ = log_debug(&format!("Using -f with file: {}", file_path));
         } else {
             eprintln!("Error: -f flag requires a file path argument");
             eprintln!("Usage: fonda -f <environment_file.yaml>");
@@ -122,6 +194,11 @@ async fn main() -> Result<(), FondaError> {
     match command {
         FondaCommand::RunRequirements => run_requirements().await,
         FondaCommand::WriteRequirements => write_requirements().await,
+        FondaCommand::WriteRequirementsCustomFile(file_path) => {
+            println!("Writing requirements from custom file: {}", file_path);
+            let _ = log_debug(&format!("Writing requirements from custom file: {}", file_path));
+            write_requirements_from_file(&file_path).await
+        },
         FondaCommand::CreateAndRun => create_and_run().await,
         FondaCommand::CustomFile(file_path) => create_and_run_with_file(&file_path).await,
     }
@@ -130,6 +207,7 @@ async fn main() -> Result<(), FondaError> {
 async fn run_command(command: &str, args: &[&str]) -> Result<std::process::Output, FondaError> {
     let start = Instant::now();
     println!("Running command: {} {}", command, args.join(" "));
+    let _ = log_debug(&format!("Running command: {} {}", command, args.join(" ")));
     
     let result = TokioCommand::new(command)
         .args(args)
@@ -141,6 +219,7 @@ async fn run_command(command: &str, args: &[&str]) -> Result<std::process::Outpu
         });
 
     println!("Command completed in {:?}", start.elapsed());
+    let _ = log_debug(&format!("Command completed in {:?}", start.elapsed()));
     result
 }
 
@@ -163,10 +242,13 @@ async fn run_requirements() -> Result<(), FondaError> {
     }
 
     println!("Requirements installed successfully.");
+    let _ = log_debug("Requirements installed successfully.");
     Ok(())
 }
 
 async fn write_requirements() -> Result<(), FondaError> {
+    println!("Writing requirements from default environment file: {}", ENVIRONMENT_FILE);
+    let _ = log_debug(&format!("Writing requirements from default environment file: {}", ENVIRONMENT_FILE));
     write_requirements_from_file(ENVIRONMENT_FILE).await
 }
 
@@ -191,16 +273,59 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
                 writeln!(requirements_file, "{}", package.trim())?;
             }
         } else {
-            // Handle direct package specifications like "numpy>=1.24.0"
-            // Strip comments if present
-            let package_spec = if let Some(comment_idx) = dep.find('#') {
-                dep[0..comment_idx].trim()
+            // Check for platform-specific dependencies
+            if let Some(comment_idx) = dep.find('#') {
+                let package_spec = dep[0..comment_idx].trim();
+                let comment = dep[comment_idx..].trim();
+                
+                // Check if this is a platform-specific dependency
+                let comment_lower = comment.to_lowercase();
+                let _ = log_debug(&format!("PROCESSING - Dependency: {}, Comment: {}, Current OS: {}", package_spec, comment, OS));
+                
+                // Skip Windows-only dependencies on non-Windows platforms
+                if comment_lower.contains("[win]") {
+                    let _ = log_debug(&format!("FOUND Windows marker in: {}", comment));
+                    if OS != "windows" {
+                        let _ = log_debug(&format!("SKIPPING Windows-only dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING Windows-only dependency (on Windows): {}", package_spec));
+                    }
+                }
+                
+                // Skip Linux-only dependencies on non-Linux platforms
+                if comment_lower.contains("[linux]") {
+                    let _ = log_debug(&format!("FOUND Linux marker in: {}", comment));
+                    if OS != "linux" {
+                        let _ = log_debug(&format!("SKIPPING Linux-only dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING Linux-only dependency (on Linux): {}", package_spec));
+                    }
+                }
+                
+                // Skip macOS-only dependencies on non-macOS platforms
+                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
+                    let _ = log_debug(&format!("FOUND macOS marker in: {}", comment));
+                    if OS != "macos" {
+                        let _ = log_debug(&format!("SKIPPING macOS-only dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING macOS-only dependency (on macOS): {}", package_spec));
+                    }
+                }
+                
+                let _ = log_debug(&format!("ADDING dependency to requirements.txt: {}", package_spec));
+                
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             } else {
-                dep.trim()
-            };
-            
-            if !package_spec.is_empty() {
-                writeln!(requirements_file, "{}", package_spec)?;
+                // No platform marker, include the dependency
+                let package_spec = dep.trim();
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             }
         }
     }
@@ -208,20 +333,65 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
     // Process pip section if it exists
     if let Some(pip_deps) = &env.pip {
         for dep in pip_deps {
-            // Strip comments if present
-            let package_spec = if let Some(comment_idx) = dep.find('#') {
-                dep[0..comment_idx].trim()
+            // Check for platform-specific dependencies
+            if let Some(comment_idx) = dep.find('#') {
+                let package_spec = dep[0..comment_idx].trim();
+                let comment = dep[comment_idx..].trim();
+                
+                // Check if this is a platform-specific dependency
+                let comment_lower = comment.to_lowercase();
+                let _ = log_debug(&format!("PROCESSING - Pip dependency: {}, Comment: {}, Current OS: {}", package_spec, comment, OS));
+                
+                // Skip Windows-only dependencies on non-Windows platforms
+                if comment_lower.contains("[win]") {
+                    let _ = log_debug(&format!("FOUND Windows marker in: {}", comment));
+                    if OS != "windows" {
+                        let _ = log_debug(&format!("SKIPPING Windows-only pip dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING Windows-only pip dependency (on Windows): {}", package_spec));
+                    }
+                }
+                
+                // Skip Linux-only dependencies on non-Linux platforms
+                if comment_lower.contains("[linux]") {
+                    let _ = log_debug(&format!("FOUND Linux marker in: {}", comment));
+                    if OS != "linux" {
+                        let _ = log_debug(&format!("SKIPPING Linux-only pip dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING Linux-only pip dependency (on Linux): {}", package_spec));
+                    }
+                }
+                
+                // Skip macOS-only dependencies on non-macOS platforms
+                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
+                    let _ = log_debug(&format!("FOUND macOS marker in: {}", comment));
+                    if OS != "macos" {
+                        let _ = log_debug(&format!("SKIPPING macOS-only pip dependency: {}", package_spec));
+                        continue;
+                    } else {
+                        let _ = log_debug(&format!("KEEPING macOS-only pip dependency (on macOS): {}", package_spec));
+                    }
+                }
+                
+                let _ = log_debug(&format!("ADDING pip dependency to requirements.txt: {}", package_spec));
+                
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             } else {
-                dep.trim()
-            };
-            
-            if !package_spec.is_empty() {
-                writeln!(requirements_file, "{}", package_spec)?;
+                // No platform marker, include the dependency
+                let package_spec = dep.trim();
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             }
         }
     }
 
     println!("requirements.txt created successfully.");
+    let _ = log_debug("requirements.txt created successfully.");
     Ok(())
 }
 
@@ -283,16 +453,44 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
                 writeln!(requirements_file, "{}", package.trim())?;
             }
         } else {
-            // Handle direct package specifications like "numpy>=1.24.0"
-            // Strip comments if present
-            let package_spec = if let Some(comment_idx) = dep.find('#') {
-                dep[0..comment_idx].trim()
+            // Check for platform-specific dependencies
+            if let Some(comment_idx) = dep.find('#') {
+                let package_spec = dep[0..comment_idx].trim();
+                let comment = dep[comment_idx..].trim();
+                
+                // Check if this is a platform-specific dependency
+                let comment_lower = comment.to_lowercase();
+                
+                // Skip Windows-only dependencies on non-Windows platforms
+                if comment_lower.contains("[win]") {
+                    if OS != "windows" {
+                        continue;
+                    }
+                }
+                
+                // Skip Linux-only dependencies on non-Linux platforms
+                if comment_lower.contains("[linux]") {
+                    if OS != "linux" {
+                        continue;
+                    }
+                }
+                
+                // Skip macOS-only dependencies on non-macOS platforms
+                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
+                    if OS != "macos" {
+                        continue;
+                    }
+                }
+                
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             } else {
-                dep.trim()
-            };
-            
-            if !package_spec.is_empty() {
-                writeln!(requirements_file, "{}", package_spec)?;
+                // No platform marker, include the dependency
+                let package_spec = dep.trim();
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             }
         }
     }
@@ -300,15 +498,44 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
     // Process pip section if it exists
     if let Some(pip_deps) = &env.pip {
         for dep in pip_deps {
-            // Strip comments if present
-            let package_spec = if let Some(comment_idx) = dep.find('#') {
-                dep[0..comment_idx].trim()
+            // Check for platform-specific dependencies
+            if let Some(comment_idx) = dep.find('#') {
+                let package_spec = dep[0..comment_idx].trim();
+                let comment = dep[comment_idx..].trim();
+                
+                // Check if this is a platform-specific dependency
+                let comment_lower = comment.to_lowercase();
+                
+                // Skip Windows-only dependencies on non-Windows platforms
+                if comment_lower.contains("[win]") {
+                    if OS != "windows" {
+                        continue;
+                    }
+                }
+                
+                // Skip Linux-only dependencies on non-Linux platforms
+                if comment_lower.contains("[linux]") {
+                    if OS != "linux" {
+                        continue;
+                    }
+                }
+                
+                // Skip macOS-only dependencies on non-macOS platforms
+                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
+                    if OS != "macos" {
+                        continue;
+                    }
+                }
+                
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             } else {
-                dep.trim()
-            };
-            
-            if !package_spec.is_empty() {
-                writeln!(requirements_file, "{}", package_spec)?;
+                // No platform marker, include the dependency
+                let package_spec = dep.trim();
+                if !package_spec.is_empty() {
+                    writeln!(requirements_file, "{}", package_spec)?;
+                }
             }
         }
     }
