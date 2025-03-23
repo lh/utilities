@@ -30,13 +30,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Set WORKSPACE_ROOT
-        run: |
-          if [ "${{ runner.os }}" == "Windows" ]; then
-            echo "WORKSPACE_ROOT=$(pwd)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          else
-            echo "WORKSPACE_ROOT=$(pwd)" >> $GITHUB_ENV
-          fi
+      - name: Set WORKSPACE_ROOT on Unix
+        if: runner.os != 'Windows'
+        run: echo "WORKSPACE_ROOT=$(pwd)" >> $GITHUB_ENV
+      - name: Set WORKSPACE_ROOT on Windows
+        if: runner.os == 'Windows'
+        run: echo "WORKSPACE_ROOT=$(pwd)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install Rust
         run: rustup target add ${{ matrix.target }}
       - name: Build
