@@ -8,11 +8,10 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./fonda
     steps:
       - uses: actions/checkout@v4
+      - name: Set WORKSPACE_ROOT
+        run: echo "WORKSPACE_ROOT=$(pwd)" >> $GITHUB_ENV
       - uses: taiki-e/create-gh-release-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,19 +28,25 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: ./fonda
     steps:
       - uses: actions/checkout@v4
+      - name: Set WORKSPACE_ROOT
+        run: |
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            echo "WORKSPACE_ROOT=$(pwd)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          else
+            echo "WORKSPACE_ROOT=$(pwd)" >> $GITHUB_ENV
+          fi
       - name: Install Rust
         run: rustup target add ${{ matrix.target }}
       - name: Build
+        working-directory: ./fonda
         run: cargo build --release --target ${{ matrix.target }}
       - name: Upload Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: fonda
           target: ${{ matrix.target }}
+          manifest-path: ./fonda/Cargo.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
