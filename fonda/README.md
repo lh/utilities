@@ -8,6 +8,8 @@ Fonda is a Rust-based CLI tool that manages Python virtual environments and depe
 - Converts conda-style environment.yaml files to requirements.txt
 - Installs Python package dependencies
 - Supports multiple commands for different operations
+- Handles platform-specific dependencies with conda-style markers (`# [win]`, `# [linux]`, `# [osx]`)
+- Provides verbose mode for detailed debugging information
 
 ## Installation
 
@@ -40,7 +42,21 @@ fonda -r
 
 # Generate requirements.txt from environment.yaml
 fonda -w
+
+# Generate requirements.txt from a custom YAML file
+fonda -w -f custom-environment.yaml
+
+# Enable verbose mode (can be combined with any command)
+fonda -v
+fonda -v -w -f custom-environment.yaml
 ```
+
+### Command Flags
+
+- `-f <file>`: Use a custom YAML file instead of the default environment.yaml
+- `-r`: Install packages from an existing requirements.txt file
+- `-w`: Generate requirements.txt from environment.yaml without creating an environment
+- `-v`: Enable verbose mode for detailed debugging information
 
 
 ## Configuration
@@ -50,9 +66,21 @@ Create an environment.yaml file in your project root:
 ```yaml
 name: myenv
 dependencies:
-  - "pip:numpy,pandas"
-  - "pip:scikit-learn"
+  - "numpy>=1.24.0"
+  - "pandas>=1.3.0"
+  - "pywin32>=300       # [win]"    # Windows-only dependency
+  - "pyobjc>=8.0        # [osx]"    # macOS-only dependency
+  - "python-xlib>=0.30  # [linux]"  # Linux-only dependency
+  - "pip:requests>=2.28.0"          # Regular pip dependency
+  - "pip:winreg>=0.3.1      # [win]"    # Windows-only pip dependency
+  - "pip:pyobjc-framework-Cocoa>=8.0  # [osx]"    # macOS-only pip dependency
+  - "pip:dbus-python>=1.2.18  # [linux]"  # Linux-only pip dependency
 ```
+
+Platform-specific dependencies are automatically filtered based on the current operating system. The following markers are supported:
+- `# [win]`: Windows-only dependency
+- `# [linux]`: Linux-only dependency
+- `# [osx]` or `# [darwin]`: macOS-only dependency
 
 ## Requirements
 
