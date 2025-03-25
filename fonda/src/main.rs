@@ -10,6 +10,16 @@ const REQUIREMENTS_FILE: &str = "requirements.txt";
 const ENVIRONMENT_FILE: &str = "environment.yaml";
 const PYTHON_COMMANDS: [&str; 3] = ["python", "python3", "py"];
 const DEBUG_FILE: &str = "fonda_debug.log";
+static mut VERBOSE_MODE: bool = false;
+
+/// Print debug information if verbose mode is enabled
+macro_rules! debug_println {
+    ($($arg:tt)*) => {
+        if unsafe { VERBOSE_MODE } {
+            println!($($arg)*);
+        }
+    };
+}
 
 #[derive(Debug)]
 enum FondaError {
@@ -137,12 +147,28 @@ async fn main() -> Result<(), FondaError> {
         eprintln!("Warning: Failed to create debug log: {}", e);
     }
     
+    // Check for verbose mode flag
+    if args.contains(&"-v".to_string()) {
+        unsafe { VERBOSE_MODE = true; }
+        println!("Verbose mode enabled");
+    }
+    
+    // Find the first non-verbose flag to determine the command
+    let command_arg = args.iter().skip(1)
+        .find(|&arg| arg != "-v")
+        .map(String::as_str)
+        .unwrap_or("");
+    
     // Parse command and optional file path
-    let mut command = FondaCommand::from(args.get(1).map(String::as_str).unwrap_or(""));
+    let mut command = FondaCommand::from(command_arg);
     
     // Check for -w -f combination
-    if args.len() >= 3 && args[1] == "-w" && args[2] == "-f" {
-        if let Some(file_path) = args.get(3) {
+    let w_index = args.iter().position(|arg| arg == "-w");
+    let f_index = args.iter().position(|arg| arg == "-f");
+    
+    if let (Some(_w_index), Some(f_index)) = (w_index, f_index) {
+        // Get the file path after -f
+        if let Some(file_path) = args.get(f_index + 1) {
             // Validate that the file exists and has a .yaml or .yml extension
             let path = Path::new(file_path);
             if !path.exists() {
@@ -165,9 +191,9 @@ async fn main() -> Result<(), FondaError> {
             std::process::exit(1);
         }
     }
-    // If using -f flag, get the file path from the next argument
-    else if let FondaCommand::CustomFile(_) = &command {
-        if let Some(file_path) = args.get(2) {
+    // If using -f flag without -w, get the file path from the next argument
+    else if let (Some(f_index), None) = (f_index, w_index) {
+        if let Some(file_path) = args.get(f_index + 1) {
             // Validate that the file exists and has a .yaml or .yml extension
             let path = Path::new(file_path);
             if !path.exists() {
@@ -253,143 +279,156 @@ async fn write_requirements() -> Result<(), FondaError> {
 }
 
 async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> {
+    debug_println!("DEBUG: Starting write_requirements_from_file with file: {}", env_file);
     let path = Path::new(env_file);
     if !path.exists() {
         return Err(FondaError::ConfigNotFound(format!("{} not found", env_file)));
     }
 
+    // First, parse the YAML file to get the basic structure (for validation)
     let file = File::open(path)?;
-    let env: CondaEnv = serde_yaml::from_reader(file)?;
+    let _env: CondaEnv = serde_yaml::from_reader(file)?;
+    debug_println!("DEBUG: Successfully parsed YAML file structure");
+
+    // Now, read the file as raw text to preserve comments
+    let file_content = std::fs::read_to_string(path)?;
+    debug_println!("DEBUG: Read raw file content");
 
     let requirements_path = Path::new(REQUIREMENTS_FILE);
     let mut requirements_file = File::create(requirements_path)?;
+    debug_println!("DEBUG: Created requirements.txt file");
     
-    // Process dependencies
-    for dep in &env.dependencies {
-        if dep.starts_with("pip:") {
-            // Handle the "pip:package1,package2" format
-            let packages = dep.split(':').nth(1).unwrap_or("").split(',');
-            for package in packages {
-                writeln!(requirements_file, "{}", package.trim())?;
-            }
-        } else {
-            // Check for platform-specific dependencies
-            if let Some(comment_idx) = dep.find('#') {
-                let package_spec = dep[0..comment_idx].trim();
-                let comment = dep[comment_idx..].trim();
-                
-                // Check if this is a platform-specific dependency
-                let comment_lower = comment.to_lowercase();
-                let _ = log_debug(&format!("PROCESSING - Dependency: {}, Comment: {}, Current OS: {}", package_spec, comment, OS));
-                
-                // Skip Windows-only dependencies on non-Windows platforms
-                if comment_lower.contains("[win]") {
-                    let _ = log_debug(&format!("FOUND Windows marker in: {}", comment));
-                    if OS != "windows" {
-                        let _ = log_debug(&format!("SKIPPING Windows-only dependency: {}", package_spec));
-                        continue;
-                    } else {
-                        let _ = log_debug(&format!("KEEPING Windows-only dependency (on Windows): {}", package_spec));
-                    }
-                }
-                
-                // Skip Linux-only dependencies on non-Linux platforms
-                if comment_lower.contains("[linux]") {
-                    let _ = log_debug(&format!("FOUND Linux marker in: {}", comment));
-                    if OS != "linux" {
-                        let _ = log_debug(&format!("SKIPPING Linux-only dependency: {}", package_spec));
-                        continue;
-                    } else {
-                        let _ = log_debug(&format!("KEEPING Linux-only dependency (on Linux): {}", package_spec));
-                    }
-                }
-                
-                // Skip macOS-only dependencies on non-macOS platforms
-                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
-                    let _ = log_debug(&format!("FOUND macOS marker in: {}", comment));
-                    if OS != "macos" {
-                        let _ = log_debug(&format!("SKIPPING macOS-only dependency: {}", package_spec));
-                        continue;
-                    } else {
-                        let _ = log_debug(&format!("KEEPING macOS-only dependency (on macOS): {}", package_spec));
-                    }
-                }
-                
-                let _ = log_debug(&format!("ADDING dependency to requirements.txt: {}", package_spec));
-                
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            } else {
-                // No platform marker, include the dependency
-                let package_spec = dep.trim();
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            }
+    // Process dependencies from the raw file content
+    debug_println!("DEBUG: Processing dependencies from raw file content");
+    
+    // Find the dependencies section
+    let mut in_dependencies = false;
+    let mut in_pip = false;
+    
+    for line in file_content.lines() {
+        let trimmed_line = line.trim();
+        
+        // Skip empty lines and comments at the beginning of lines
+        if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
+            continue;
         }
-    }
-    
-    // Process pip section if it exists
-    if let Some(pip_deps) = &env.pip {
-        for dep in pip_deps {
+        
+        // Check if we're entering the dependencies section
+        if trimmed_line == "dependencies:" {
+            in_dependencies = true;
+            in_pip = false;
+            debug_println!("DEBUG: Found dependencies section");
+            continue;
+        }
+        
+        // Check if we're entering the pip section
+        if trimmed_line == "pip:" {
+            in_dependencies = false;
+            in_pip = true;
+            debug_println!("DEBUG: Found pip section");
+            continue;
+        }
+        
+        // If we're not in either section, skip
+        if !in_dependencies && !in_pip {
+            continue;
+        }
+        
+        // Check if we're exiting the current section (indentation level change)
+        if !trimmed_line.starts_with('-') && !trimmed_line.starts_with(' ') {
+            in_dependencies = false;
+            in_pip = false;
+            continue;
+        }
+        
+        // Process dependency line
+        if trimmed_line.starts_with('-') {
+            let dep_line = trimmed_line.trim_start_matches('-').trim();
+            debug_println!("DEBUG: Processing raw dependency line: '{}'", dep_line);
+            
+            // Handle pip: prefix in dependencies section
+            if in_dependencies && dep_line.starts_with("pip:") {
+                let packages = dep_line.trim_start_matches("pip:").split(',');
+                for package in packages {
+                    let package_spec = package.trim();
+                    if !package_spec.is_empty() {
+                        debug_println!("DEBUG: Adding pip package from dependencies section: {}", package_spec);
+                        writeln!(requirements_file, "{}", package_spec)?;
+                    }
+                }
+                continue;
+            }
+            
             // Check for platform-specific dependencies
-            if let Some(comment_idx) = dep.find('#') {
-                let package_spec = dep[0..comment_idx].trim();
-                let comment = dep[comment_idx..].trim();
+            if let Some(comment_idx) = dep_line.find('#') {
+                let package_spec = dep_line[0..comment_idx].trim();
+                let comment = dep_line[comment_idx..].trim();
+                
+                debug_println!("DEBUG: Found comment in dependency: '{}'", comment);
+                debug_println!("DEBUG: Package spec: '{}'", package_spec);
                 
                 // Check if this is a platform-specific dependency
                 let comment_lower = comment.to_lowercase();
-                let _ = log_debug(&format!("PROCESSING - Pip dependency: {}, Comment: {}, Current OS: {}", package_spec, comment, OS));
+                debug_println!("DEBUG: Comment lowercase: '{}'", comment_lower);
+                debug_println!("DEBUG: Current OS: '{}'", OS);
+                
+                let section = if in_dependencies { "dependency" } else { "pip dependency" };
+                debug_println!("PROCESSING - {}: {}, Comment: {}, Current OS: {}", section, package_spec, comment, OS);
                 
                 // Skip Windows-only dependencies on non-Windows platforms
+                debug_println!("DEBUG: Checking for [win] marker: {}", comment_lower.contains("[win]"));
                 if comment_lower.contains("[win]") {
-                    let _ = log_debug(&format!("FOUND Windows marker in: {}", comment));
+                    debug_println!("FOUND Windows marker in: {}", comment);
                     if OS != "windows" {
-                        let _ = log_debug(&format!("SKIPPING Windows-only pip dependency: {}", package_spec));
+                        debug_println!("SKIPPING Windows-only {}: {}", section, package_spec);
                         continue;
                     } else {
-                        let _ = log_debug(&format!("KEEPING Windows-only pip dependency (on Windows): {}", package_spec));
+                        debug_println!("KEEPING Windows-only {} (on Windows): {}", section, package_spec);
                     }
                 }
                 
                 // Skip Linux-only dependencies on non-Linux platforms
+                debug_println!("DEBUG: Checking for [linux] marker: {}", comment_lower.contains("[linux]"));
                 if comment_lower.contains("[linux]") {
-                    let _ = log_debug(&format!("FOUND Linux marker in: {}", comment));
+                    debug_println!("FOUND Linux marker in: {}", comment);
                     if OS != "linux" {
-                        let _ = log_debug(&format!("SKIPPING Linux-only pip dependency: {}", package_spec));
+                        debug_println!("SKIPPING Linux-only {}: {}", section, package_spec);
                         continue;
                     } else {
-                        let _ = log_debug(&format!("KEEPING Linux-only pip dependency (on Linux): {}", package_spec));
+                        debug_println!("KEEPING Linux-only {} (on Linux): {}", section, package_spec);
                     }
                 }
                 
                 // Skip macOS-only dependencies on non-macOS platforms
+                debug_println!("DEBUG: Checking for [osx] marker: {}", comment_lower.contains("[osx]"));
+                debug_println!("DEBUG: Checking for [darwin] marker: {}", comment_lower.contains("[darwin]"));
                 if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
-                    let _ = log_debug(&format!("FOUND macOS marker in: {}", comment));
+                    debug_println!("FOUND macOS marker in: {}", comment);
                     if OS != "macos" {
-                        let _ = log_debug(&format!("SKIPPING macOS-only pip dependency: {}", package_spec));
+                        debug_println!("SKIPPING macOS-only {}: {}", section, package_spec);
                         continue;
                     } else {
-                        let _ = log_debug(&format!("KEEPING macOS-only pip dependency (on macOS): {}", package_spec));
+                        debug_println!("KEEPING macOS-only {} (on macOS): {}", section, package_spec);
                     }
                 }
                 
-                let _ = log_debug(&format!("ADDING pip dependency to requirements.txt: {}", package_spec));
+                debug_println!("ADDING {} to requirements.txt: {}", section, package_spec);
                 
                 if !package_spec.is_empty() {
                     writeln!(requirements_file, "{}", package_spec)?;
                 }
             } else {
                 // No platform marker, include the dependency
-                let package_spec = dep.trim();
+                let package_spec = dep_line.trim();
                 if !package_spec.is_empty() {
+                    debug_println!("DEBUG: Adding regular dependency: {}", package_spec);
                     writeln!(requirements_file, "{}", package_spec)?;
                 }
             }
         }
     }
 
+    debug_println!("DEBUG: Finished processing all dependencies");
     println!("requirements.txt created successfully.");
     let _ = log_debug("requirements.txt created successfully.");
     Ok(())
@@ -437,107 +476,18 @@ async fn create_and_run_with_file(env_file: &str) -> Result<(), FondaError> {
         return Err(FondaError::ConfigNotFound(format!("{} not found", env_file)));
     }
 
+    // First, parse the YAML file to get the basic structure (for validation)
     let file = File::open(path)?;
     let env: CondaEnv = serde_yaml::from_reader(file)?;
 
-    // Convert dependencies to requirements.txt
+    // Generate requirements.txt using our platform-specific filtering
+    // We'll reuse the write_requirements_from_file function to ensure consistent behavior
+    write_requirements_from_file(env_file).await?;
+    
+    // Read the requirements.txt file that was just created
     let requirements_path = Path::new(REQUIREMENTS_FILE);
-    let mut requirements_file = File::create(requirements_path)?;
-    
-    // Process dependencies
-    for dep in &env.dependencies {
-        if dep.starts_with("pip:") {
-            // Handle the "pip:package1,package2" format
-            let packages = dep.split(':').nth(1).unwrap_or("").split(',');
-            for package in packages {
-                writeln!(requirements_file, "{}", package.trim())?;
-            }
-        } else {
-            // Check for platform-specific dependencies
-            if let Some(comment_idx) = dep.find('#') {
-                let package_spec = dep[0..comment_idx].trim();
-                let comment = dep[comment_idx..].trim();
-                
-                // Check if this is a platform-specific dependency
-                let comment_lower = comment.to_lowercase();
-                
-                // Skip Windows-only dependencies on non-Windows platforms
-                if comment_lower.contains("[win]") {
-                    if OS != "windows" {
-                        continue;
-                    }
-                }
-                
-                // Skip Linux-only dependencies on non-Linux platforms
-                if comment_lower.contains("[linux]") {
-                    if OS != "linux" {
-                        continue;
-                    }
-                }
-                
-                // Skip macOS-only dependencies on non-macOS platforms
-                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
-                    if OS != "macos" {
-                        continue;
-                    }
-                }
-                
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            } else {
-                // No platform marker, include the dependency
-                let package_spec = dep.trim();
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            }
-        }
-    }
-    
-    // Process pip section if it exists
-    if let Some(pip_deps) = &env.pip {
-        for dep in pip_deps {
-            // Check for platform-specific dependencies
-            if let Some(comment_idx) = dep.find('#') {
-                let package_spec = dep[0..comment_idx].trim();
-                let comment = dep[comment_idx..].trim();
-                
-                // Check if this is a platform-specific dependency
-                let comment_lower = comment.to_lowercase();
-                
-                // Skip Windows-only dependencies on non-Windows platforms
-                if comment_lower.contains("[win]") {
-                    if OS != "windows" {
-                        continue;
-                    }
-                }
-                
-                // Skip Linux-only dependencies on non-Linux platforms
-                if comment_lower.contains("[linux]") {
-                    if OS != "linux" {
-                        continue;
-                    }
-                }
-                
-                // Skip macOS-only dependencies on non-macOS platforms
-                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
-                    if OS != "macos" {
-                        continue;
-                    }
-                }
-                
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            } else {
-                // No platform marker, include the dependency
-                let package_spec = dep.trim();
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            }
-        }
+    if !requirements_path.exists() {
+        return Err(FondaError::RequirementsNotFound(format!("{} not found", REQUIREMENTS_FILE)));
     }
 
     // Create the virtual environment
