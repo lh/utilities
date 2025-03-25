@@ -341,91 +341,100 @@ async fn write_requirements_from_file(env_file: &str) -> Result<(), FondaError> 
             continue;
         }
         
-        // Process dependency line
-        if trimmed_line.starts_with('-') {
-            let dep_line = trimmed_line.trim_start_matches('-').trim();
-            debug_println!("DEBUG: Processing raw dependency line: '{}'", dep_line);
-            
-            // Handle pip: prefix in dependencies section
-            if in_dependencies && dep_line.starts_with("pip:") {
-                let packages = dep_line.trim_start_matches("pip:").split(',');
-                for package in packages {
-                    let package_spec = package.trim();
+            // Process dependency line
+            if trimmed_line.starts_with('-') {
+                let dep_line = trimmed_line.trim_start_matches('-').trim();
+                debug_println!("DEBUG: Processing raw dependency line: '{}'", dep_line);
+                
+                // Handle pip: prefix in dependencies section
+                if in_dependencies && dep_line.starts_with("pip:") {
+                    let packages = dep_line.trim_start_matches("pip:").split(',');
+                    for package in packages {
+                        let package_spec = package.trim();
+                        if !package_spec.is_empty() {
+                            debug_println!("DEBUG: Adding pip package from dependencies section: {}", package_spec);
+                            writeln!(requirements_file, "{}", package_spec)?;
+                        }
+                    }
+                    continue;
+                }
+                
+                // Check for platform-specific dependencies
+                if let Some(comment_idx) = dep_line.find('#') {
+                    let package_spec = dep_line[0..comment_idx].trim();
+                    let comment = dep_line[comment_idx..].trim();
+                    
+                    debug_println!("DEBUG: Found comment in dependency: '{}'", comment);
+                    debug_println!("DEBUG: Package spec: '{}'", package_spec);
+                    
+                    // Check if this is a platform-specific dependency
+                    let comment_lower = comment.to_lowercase();
+                    debug_println!("DEBUG: Comment lowercase: '{}'", comment_lower);
+                    debug_println!("DEBUG: Current OS: '{}'", OS);
+                    
+                    let section = if in_dependencies { "dependency" } else { "pip dependency" };
+                    debug_println!("PROCESSING - {}: {}, Comment: {}, Current OS: {}", section, package_spec, comment, OS);
+                    
+                    // Skip Windows-only dependencies on non-Windows platforms
+                    debug_println!("DEBUG: Checking for [win] marker: {}", comment_lower.contains("[win]"));
+                    if comment_lower.contains("[win]") {
+                        debug_println!("FOUND Windows marker in: {}", comment);
+                        if OS != "windows" {
+                            debug_println!("SKIPPING Windows-only {}: {}", section, package_spec);
+                            continue;
+                        } else {
+                            debug_println!("KEEPING Windows-only {} (on Windows): {}", section, package_spec);
+                        }
+                    }
+                    
+                    // Skip Linux-only dependencies on non-Linux platforms
+                    debug_println!("DEBUG: Checking for [linux] marker: {}", comment_lower.contains("[linux]"));
+                    if comment_lower.contains("[linux]") {
+                        debug_println!("FOUND Linux marker in: {}", comment);
+                        if OS != "linux" {
+                            debug_println!("SKIPPING Linux-only {}: {}", section, package_spec);
+                            continue;
+                        } else {
+                            debug_println!("KEEPING Linux-only {} (on Linux): {}", section, package_spec);
+                        }
+                    }
+                    
+                    // Skip macOS-only dependencies on non-macOS platforms
+                    debug_println!("DEBUG: Checking for [osx] marker: {}", comment_lower.contains("[osx]"));
+                    debug_println!("DEBUG: Checking for [darwin] marker: {}", comment_lower.contains("[darwin]"));
+                    if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
+                        debug_println!("FOUND macOS marker in: {}", comment);
+                        if OS != "macos" {
+                            debug_println!("SKIPPING macOS-only {}: {}", section, package_spec);
+                            continue;
+                        } else {
+                            debug_println!("KEEPING macOS-only {} (on macOS): {}", section, package_spec);
+                        }
+                    }
+                    
+                    debug_println!("ADDING {} to requirements.txt: {}", section, package_spec);
+                    
                     if !package_spec.is_empty() {
-                        debug_println!("DEBUG: Adding pip package from dependencies section: {}", package_spec);
                         writeln!(requirements_file, "{}", package_spec)?;
                     }
-                }
-                continue;
-            }
-            
-            // Check for platform-specific dependencies
-            if let Some(comment_idx) = dep_line.find('#') {
-                let package_spec = dep_line[0..comment_idx].trim();
-                let comment = dep_line[comment_idx..].trim();
-                
-                debug_println!("DEBUG: Found comment in dependency: '{}'", comment);
-                debug_println!("DEBUG: Package spec: '{}'", package_spec);
-                
-                // Check if this is a platform-specific dependency
-                let comment_lower = comment.to_lowercase();
-                debug_println!("DEBUG: Comment lowercase: '{}'", comment_lower);
-                debug_println!("DEBUG: Current OS: '{}'", OS);
-                
-                let section = if in_dependencies { "dependency" } else { "pip dependency" };
-                debug_println!("PROCESSING - {}: {}, Comment: {}, Current OS: {}", section, package_spec, comment, OS);
-                
-                // Skip Windows-only dependencies on non-Windows platforms
-                debug_println!("DEBUG: Checking for [win] marker: {}", comment_lower.contains("[win]"));
-                if comment_lower.contains("[win]") {
-                    debug_println!("FOUND Windows marker in: {}", comment);
-                    if OS != "windows" {
-                        debug_println!("SKIPPING Windows-only {}: {}", section, package_spec);
-                        continue;
-                    } else {
-                        debug_println!("KEEPING Windows-only {} (on Windows): {}", section, package_spec);
+                } else {
+                    // No platform marker, include the dependency
+                    let package_spec = dep_line.trim();
+                    if !package_spec.is_empty() {
+                        // Handle Git/URL dependencies and editable installs
+                        if package_spec.starts_with("git+") || 
+                           package_spec.starts_with("http://") || 
+                           package_spec.starts_with("https://") || 
+                           package_spec.starts_with("-e ") {
+                            debug_println!("DEBUG: Adding special dependency: {}", package_spec);
+                            writeln!(requirements_file, "{}", package_spec)?;
+                        } else {
+                            debug_println!("DEBUG: Adding regular dependency: {}", package_spec);
+                            writeln!(requirements_file, "{}", package_spec)?;
+                        }
                     }
-                }
-                
-                // Skip Linux-only dependencies on non-Linux platforms
-                debug_println!("DEBUG: Checking for [linux] marker: {}", comment_lower.contains("[linux]"));
-                if comment_lower.contains("[linux]") {
-                    debug_println!("FOUND Linux marker in: {}", comment);
-                    if OS != "linux" {
-                        debug_println!("SKIPPING Linux-only {}: {}", section, package_spec);
-                        continue;
-                    } else {
-                        debug_println!("KEEPING Linux-only {} (on Linux): {}", section, package_spec);
-                    }
-                }
-                
-                // Skip macOS-only dependencies on non-macOS platforms
-                debug_println!("DEBUG: Checking for [osx] marker: {}", comment_lower.contains("[osx]"));
-                debug_println!("DEBUG: Checking for [darwin] marker: {}", comment_lower.contains("[darwin]"));
-                if comment_lower.contains("[osx]") || comment_lower.contains("[darwin]") {
-                    debug_println!("FOUND macOS marker in: {}", comment);
-                    if OS != "macos" {
-                        debug_println!("SKIPPING macOS-only {}: {}", section, package_spec);
-                        continue;
-                    } else {
-                        debug_println!("KEEPING macOS-only {} (on macOS): {}", section, package_spec);
-                    }
-                }
-                
-                debug_println!("ADDING {} to requirements.txt: {}", section, package_spec);
-                
-                if !package_spec.is_empty() {
-                    writeln!(requirements_file, "{}", package_spec)?;
-                }
-            } else {
-                // No platform marker, include the dependency
-                let package_spec = dep_line.trim();
-                if !package_spec.is_empty() {
-                    debug_println!("DEBUG: Adding regular dependency: {}", package_spec);
-                    writeln!(requirements_file, "{}", package_spec)?;
                 }
             }
-        }
     }
 
     debug_println!("DEBUG: Finished processing all dependencies");

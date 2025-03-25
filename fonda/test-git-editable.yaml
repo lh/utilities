@@ -1,0 +1,29 @@
+name: git-editable-test
+python_version: ">=3.8"
+
+dependencies:
+  # Core dependencies
+  - pyyaml>=6.0        # For protocol parsing
+  - numpy>=1.24.0      # For numerical operations and distributions
+  - pandas>=1.3.0      # For data handling and analysis
+
+# Separate pip section for pip-specific packages
+pip:
+  # Regular pip packages
+  - requests>=2.28.0   # For HTTP requests
+  - flask>=2.0.0       # For web server
+  
+  # Git repository dependencies
+  - git+https://github.com/user/repo.git                     # Basic Git repo
+  - git+https://github.com/user/repo.git@branch              # Git repo with branch
+  - git+https://github.com/user/repo.git@v1.0.0              # Git repo with tag
+  - git+https://github.com/user/repo.git@a1b2c3d             # Git repo with commit hash
+  - git+ssh://git@github.com/user/private-repo.git           # SSH Git repo
+  
+  # URL dependencies
+  - https://example.com/packages/some-package.tar.gz         # Direct URL to package
+  
+  # Editable installs
+  - -e .                                                     # Current directory
+  - -e ./path/to/local/package                               # Local path
+  - -e git+https://github.com/user/dev-repo.git              # Editable Git repo

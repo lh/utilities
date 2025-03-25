@@ -9,6 +9,7 @@ Fonda is a Rust-based CLI tool that manages Python virtual environments and depe
 - Installs Python package dependencies
 - Supports multiple commands for different operations
 - Handles platform-specific dependencies with conda-style markers (`# [win]`, `# [linux]`, `# [osx]`)
+- Supports Git/URL dependencies and development/editable installs
 - Provides verbose mode for detailed debugging information
 
 ## Installation
@@ -75,12 +76,44 @@ dependencies:
   - "pip:winreg>=0.3.1      # [win]"    # Windows-only pip dependency
   - "pip:pyobjc-framework-Cocoa>=8.0  # [osx]"    # macOS-only pip dependency
   - "pip:dbus-python>=1.2.18  # [linux]"  # Linux-only pip dependency
+  
+  # Git repository dependencies
+  - "git+https://github.com/user/repo.git"                # Basic Git repo
+  - "git+https://github.com/user/repo.git@branch"         # Git repo with branch
+  - "git+https://github.com/user/repo.git@v1.0.0"         # Git repo with tag
+  
+  # URL dependencies
+  - "https://example.com/packages/some-package.tar.gz"    # Direct URL to package
+  
+  # Editable installs
+  - "-e ."                                                # Current directory
+  - "-e ./path/to/local/package"                          # Local path
+  - "-e git+https://github.com/user/dev-repo.git"         # Editable Git repo
 ```
 
 Platform-specific dependencies are automatically filtered based on the current operating system. The following markers are supported:
 - `# [win]`: Windows-only dependency
 - `# [linux]`: Linux-only dependency
 - `# [osx]` or `# [darwin]`: macOS-only dependency
+
+### Special Dependency Types
+
+Fonda supports several special dependency types:
+
+1. **Git Repository Dependencies**:
+   - Basic format: `git+https://github.com/user/repo.git`
+   - With branch: `git+https://github.com/user/repo.git@branch`
+   - With tag: `git+https://github.com/user/repo.git@v1.0.0`
+   - With commit hash: `git+https://github.com/user/repo.git@a1b2c3d`
+   - SSH format: `git+ssh://git@github.com/user/private-repo.git`
+
+2. **URL Dependencies**:
+   - Direct URL to package: `https://example.com/packages/some-package.tar.gz`
+
+3. **Development/Editable Installs**:
+   - Current directory: `-e .`
+   - Local path: `-e ./path/to/local/package`
+   - Editable Git repo: `-e git+https://github.com/user/dev-repo.git`
 
 ## Requirements
 
